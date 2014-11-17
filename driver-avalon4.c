@@ -187,7 +187,7 @@ char *set_avalon4_voltage(char *arg)
 	return NULL;
 }
 
-static int avalon4_init_pkg(struct avalon4_pkg *pkg, uint8_t type, uint8_t idx, uint8_t cnt)
+static int avalon4_init_pkg(struct avalon4_pkg *pkg, uint8_t type, uint8_t opt, uint8_t idx, uint8_t cnt)
 {
 	unsigned short crc;
 
@@ -195,7 +195,7 @@ static int avalon4_init_pkg(struct avalon4_pkg *pkg, uint8_t type, uint8_t idx, 
 	pkg->head[1] = AVA4_H2;
 
 	pkg->type = type;
-	pkg->opt = 0;
+	pkg->opt = opt;
 	pkg->idx = idx;
 	pkg->cnt = cnt;
 
@@ -395,6 +395,13 @@ static int decode_pkg(struct thr_info *thr, struct avalon4_ret *ar, int modular_
 		break;
 	case AVA4_P_ACKDETECT:
 		applog(LOG_DEBUG, "Avalon4: AVA4_P_ACKDETECT");
+		break;
+	case AVA4_P_ACKRW:
+		applog(LOG_NOTICE, "Avalon4: AVA4_P_ACKRW %s size = %d, data = (%c%c)",
+				(ar->opt >> 7) ? "Write" : "Read",
+				(ar->opt & 0x7f),
+				ar->data[0],
+				ar->data[1]);
 		break;
 	default:
 		applog(LOG_DEBUG, "Avalon4: Unknown response");
@@ -676,7 +683,7 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 	tmp = be32toh((int)pool->pool_no);
 	memcpy(pkg.data + 24, &tmp, 4);
 
-	avalon4_init_pkg(&pkg, AVA4_P_STATIC, 1, 1);
+	avalon4_init_pkg(&pkg, AVA4_P_STATIC, 0, 1, 1);
 	if (avalon4_send_bc_pkgs(avalon4, &pkg))
 		return;
 
@@ -688,7 +695,7 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 		applog(LOG_DEBUG, "Avalon4: Pool stratum target: %s", target_str);
 		free(target_str);
 	}
-	avalon4_init_pkg(&pkg, AVA4_P_TARGET, 1, 1);
+	avalon4_init_pkg(&pkg, AVA4_P_TARGET, 0, 1, 1);
 	if (avalon4_send_bc_pkgs(avalon4, &pkg))
 		return;
 
@@ -701,7 +708,7 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 
 	pkg.data[0] = (crc & 0xff00) >> 8;
 	pkg.data[1] = crc & 0x00ff;
-	avalon4_init_pkg(&pkg, AVA4_P_JOB_ID, 1, 1);
+	avalon4_init_pkg(&pkg, AVA4_P_JOB_ID, 0, 1, 1);
 	if (avalon4_send_bc_pkgs(avalon4, &pkg))
 		return;
 
@@ -712,20 +719,20 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 	a = (coinbase_len_posthash / AVA4_P_DATA_LEN) + 1;
 	b = coinbase_len_posthash % AVA4_P_DATA_LEN;
 	memcpy(pkg.data, coinbase_prehash, 32);
-	avalon4_init_pkg(&pkg, AVA4_P_COINBASE, 1, a + (b ? 1 : 0));
+	avalon4_init_pkg(&pkg, AVA4_P_COINBASE, 0, 1, a + (b ? 1 : 0));
 	if (avalon4_send_bc_pkgs(avalon4, &pkg))
 		return;
 	applog(LOG_DEBUG, "Avalon4: Pool stratum message modified COINBASE: %d %d", a, b);
 	for (i = 1; i < a; i++) {
 		memcpy(pkg.data, pool->coinbase + coinbase_len_prehash + i * 32 - 32, 32);
-		avalon4_init_pkg(&pkg, AVA4_P_COINBASE, i + 1, a + (b ? 1 : 0));
+		avalon4_init_pkg(&pkg, AVA4_P_COINBASE, 0, i + 1, a + (b ? 1 : 0));
 		if (avalon4_send_bc_pkgs(avalon4, &pkg))
 			return;
 	}
 	if (b) {
 		memset(pkg.data, 0, AVA4_P_DATA_LEN);
 		memcpy(pkg.data, pool->coinbase + coinbase_len_prehash + i * 32 - 32, b);
-		avalon4_init_pkg(&pkg, AVA4_P_COINBASE, i + 1, i + 1);
+		avalon4_init_pkg(&pkg, AVA4_P_COINBASE, 0, i + 1, i + 1);
 		if (avalon4_send_bc_pkgs(avalon4, &pkg))
 			return;
 	}
@@ -735,7 +742,7 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 	for (i = 0; i < b; i++) {
 		memset(pkg.data, 0, AVA4_P_DATA_LEN);
 		memcpy(pkg.data, pool->swork.merkle_bin[i], 32);
-		avalon4_init_pkg(&pkg, AVA4_P_MERKLES, i + 1, b);
+		avalon4_init_pkg(&pkg, AVA4_P_MERKLES, 0, i + 1, b);
 		if (avalon4_send_bc_pkgs(avalon4, &pkg))
 			return;
 	}
@@ -744,7 +751,7 @@ static void avalon4_stratum_pkgs(struct cgpu_info *avalon4, struct pool *pool)
 	for (i = 0; i < 4; i++) {
 		memset(pkg.data, 0, AVA4_P_DATA_LEN);
 		memcpy(pkg.data, pool->header_bin + i * 32, 32);
-		avalon4_init_pkg(&pkg, AVA4_P_HEADER, i + 1, 4);
+		avalon4_init_pkg(&pkg, AVA4_P_HEADER, 0, i + 1, 4);
 		if (avalon4_send_bc_pkgs(avalon4, &pkg))
 			return;
 	}
@@ -851,7 +858,7 @@ static void detect_modules(struct cgpu_info *avalon4)
 		memset(detect_pkg.data, 0, AVA4_P_DATA_LEN);
 		tmp = be32toh(i); /* ID */
 		memcpy(detect_pkg.data + 28, &tmp, 4);
-		avalon4_init_pkg(&detect_pkg, AVA4_P_DETECT, 1, 1);
+		avalon4_init_pkg(&detect_pkg, AVA4_P_DETECT, 0, 1, 1);
 		err = avalon4_iic_xfer_pkg(avalon4, AVA4_MODULE_BROADCAST, &detect_pkg, &ret_pkg);
 		if (err == AVA4_SEND_OK) {
 			if (decode_pkg(thr, &ret_pkg, AVA4_MODULE_BROADCAST)) {
@@ -925,7 +932,7 @@ static int polling(struct thr_info *thr, struct cgpu_info *avalon4, struct avalo
 			memcpy(send_pkg.data + 4, &tmp, 4);
 		}
 
-		avalon4_init_pkg(&send_pkg, AVA4_P_POLLING, 1, 1);
+		avalon4_init_pkg(&send_pkg, AVA4_P_POLLING, 0, 1, 1);
 		ret = avalon4_iic_xfer_pkg(avalon4, i, &send_pkg, &ar);
 		if (ret == AVA4_SEND_OK)
 			decode_err =  decode_pkg(thr, &ar, i);
@@ -1058,7 +1065,7 @@ static void avalon4_stratum_set(struct cgpu_info *avalon4, struct pool *pool, in
 	memcpy(send_pkg.data + 16, &tmp, 4);
 
 	/* Package the data */
-	avalon4_init_pkg(&send_pkg, AVA4_P_SET, 1, 1);
+	avalon4_init_pkg(&send_pkg, AVA4_P_SET, 0, 1, 1);
 	if (addr == AVA4_MODULE_BROADCAST)
 		avalon4_send_bc_pkgs(avalon4, &send_pkg);
 }
@@ -1068,7 +1075,7 @@ static void avalon4_stratum_finish(struct cgpu_info *avalon4)
 	struct avalon4_pkg send_pkg;
 
 	memset(send_pkg.data, 0, AVA4_P_DATA_LEN);
-	avalon4_init_pkg(&send_pkg, AVA4_P_FINISH, 1, 1);
+	avalon4_init_pkg(&send_pkg, AVA4_P_FINISH, 0, 1, 1);
 	avalon4_send_bc_pkgs(avalon4, &send_pkg);
 }
 
@@ -1295,6 +1302,42 @@ static struct api_data *avalon4_api_stats(struct cgpu_info *cgpu)
 	return root;
 }
 
+static char *avalon4_mmrw(struct cgpu_info *avalon4, char *arg)
+{
+	struct avalon4_pkg send_pkg;
+	struct avalon4_ret ar;
+	struct thr_info *thr = avalon4->thr[0];
+	int rw = 0, addr = 0, value = 0, tmp, ret;
+
+	ret = sscanf(arg, "%d,%x,%x", &rw, &addr, &value);
+	if (ret < 2)
+		return "No values passed to avalon4-mmrw";
+
+	memset(send_pkg.data, 0, AVA4_P_DATA_LEN);
+	tmp = be32toh(addr);
+	memcpy(send_pkg.data, &tmp, 4);
+	tmp = be32toh(value);
+	memcpy(send_pkg.data + 4, &tmp, 4);
+
+	/* 0-read, 1-write */
+	if (rw) {
+		avalon4_init_pkg(&send_pkg, AVA4_P_RW, 0x80 | value, value, 1);
+	} else {
+		avalon4_init_pkg(&send_pkg, AVA4_P_RW, value, 1, 1);
+	}
+
+	ret = avalon4_iic_xfer_pkg(avalon4, 0, &send_pkg, &ar);
+	if (ret == AVA4_SEND_OK)
+		decode_pkg(thr, &ar, 1);
+
+	applog(LOG_NOTICE, "%s %d: %s addr = 0x%x, ret = %d",
+			       avalon4->drv->name, avalon4->device_id,
+			       (rw == 0) ? "Read" : "Write",
+			       addr, ret);
+
+	return NULL;
+}
+
 static char *avalon4_set_device(struct cgpu_info *avalon4, char *option, char *setting, char *replybuf)
 {
 	int val;
@@ -1399,6 +1442,20 @@ static char *avalon4_set_device(struct cgpu_info *avalon4, char *option, char *s
 		applog(LOG_NOTICE, "%s %d: Update frequency to %d",
 		       avalon4->drv->name, avalon4->device_id,
 		       (opt_avalon4_freq[0] * 4 + opt_avalon4_freq[1] * 4 + opt_avalon4_freq[2]) / 9);
+
+		return NULL;
+	}
+
+	if (strcasecmp(option, "mmrw") == 0) {
+		if (!setting || !*setting) {
+			sprintf(replybuf, "missing mmrw option/value");
+			return replybuf;
+		}
+
+		if (avalon4_mmrw(avalon4, setting)) {
+			sprintf(replybuf, "invalid params for mmrw (0/1,addr, filename/rlen)");
+			return replybuf;
+		}
 
 		return NULL;
 	}
