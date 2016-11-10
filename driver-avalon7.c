@@ -1311,6 +1311,7 @@ static void detect_modules(struct cgpu_info *avalon7)
 		for (j = 0; j < info->miner_count[i]; j++) {
 			info->set_voltage[i][j] = opt_avalon7_voltage;
 			info->get_voltage[i][j] = 0;
+			info->get_vin[i][j] = 0;
 		}
 
 		info->freq_mode[i] = AVA7_FREQ_INIT_MODE;
